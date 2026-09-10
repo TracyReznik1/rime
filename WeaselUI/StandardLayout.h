@@ -22,6 +22,25 @@ class StandardLayout : public Layout {
 
   virtual void DoLayout(CDCHandle dc, PDWR pDWR = NULL) = 0;
   virtual CSize GetContentSize() const { return _contentSize; }
+  // Translate both paint and hit-test rectangles as one operation.
+  void AddSkinInsets(int left, int top, int right, int bottom,
+                     int min_width, int min_height) {
+    _preeditRect.OffsetRect(left, top);
+    _auxiliaryRect.OffsetRect(left, top);
+    _highlightRect.OffsetRect(left, top);
+    _statusIconRect.OffsetRect(left, top);
+    _prePageRect.OffsetRect(left, top);
+    _nextPageRect.OffsetRect(left, top);
+    for (int i = 0; i < candidates_count && i < MAX_CANDIDATES_COUNT; ++i) {
+      _candidateRects[i].OffsetRect(left, top);
+      _candidateLabelRects[i].OffsetRect(left, top);
+      _candidateTextRects[i].OffsetRect(left, top);
+      _candidateCommentRects[i].OffsetRect(left, top);
+    }
+    _contentSize.cx = max(min_width, _contentSize.cx + left + right);
+    _contentSize.cy = max(min_height, _contentSize.cy + top + bottom);
+    _contentRect.SetRect(0, 0, _contentSize.cx, _contentSize.cy);
+  }
   virtual CRect GetPreeditRect() const { return _preeditRect; }
   virtual CRect GetAuxiliaryRect() const { return _auxiliaryRect; }
   virtual CRect GetHighlightRect() const { return _highlightRect; }

@@ -10,6 +10,7 @@ on:
 
 jobs:
   build-and-release:
+    if: github.repository == 'rime/weasel'
     permissions:
       contents: write
     runs-on: windows-2019

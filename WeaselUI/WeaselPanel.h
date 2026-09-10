@@ -4,6 +4,7 @@
 #include "StandardLayout.h"
 #include "Layout.h"
 #include "GdiplusBlur.h"
+#include "SogouSkin.h"
 
 #pragma comment(lib, "d2d1.lib")
 #pragma comment(lib, "dwrite.lib")
@@ -26,6 +27,7 @@ class WeaselPanel
       CDoubleBufferImpl<WeaselPanel> {
  public:
   BEGIN_MSG_MAP(WeaselPanel)
+  MESSAGE_HANDLER(SkinChangedMessage(), OnSkinChanged)
   MESSAGE_HANDLER(WM_CREATE, OnCreate)
   MESSAGE_HANDLER(WM_DESTROY, OnDestroy)
   MESSAGE_HANDLER(WM_DPICHANGED, OnDpiChanged)
@@ -39,6 +41,16 @@ class WeaselPanel
   END_MSG_MAP()
 
   LRESULT OnCreate(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
+  static UINT SkinChangedMessage() {
+    static UINT message = ::RegisterWindowMessageW(L"Rime.Weasel.SogouSkinChanged.v1");
+    return message;
+  }
+  LRESULT OnSkinChanged(UINT, WPARAM, LPARAM, BOOL&) {
+    m_skin.Invalidate();
+    Refresh();
+    if (m_layout) RedrawWindow();
+    return 0;
+  }
   LRESULT OnDestroy(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
   LRESULT OnDpiChanged(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled);
   LRESULT OnMouseActivate(UINT uMsg,
@@ -62,7 +74,7 @@ class WeaselPanel
 
   void MoveTo(RECT const& rc);
   void Refresh();
-  void DoPaint(CDCHandle dc);
+  void DoPaint(CDCHandle dc, HBITMAP* snapshot = nullptr);
   bool GetIsReposition() { return m_istorepos; }
   void RedrawWindow();
 
@@ -74,6 +86,7 @@ class WeaselPanel
   static UINT_PTR ptimer;
 
  private:
+  friend struct WeaselSkinTestAccess;
   template <typename T>
   int DPI_SCALE(T t) {
     return (int)(t * dpiScaleLayout);
@@ -102,12 +115,24 @@ class WeaselPanel
                 IDWriteTextFormat1* const pTextFormat = NULL);
 
   void _LayerUpdate(const CRect& rc, CDCHandle dc);
+  void _CleanupMemDC();
+
+  // Backbuffer reuse pool
+  HDC m_hCachedMemDC = nullptr;
+  HBITMAP m_hCachedMemBitmap = nullptr;
+  HGDIOBJ m_hCachedOldBitmap = nullptr;
+  void* m_cachedMemPixels = nullptr;
+  int m_cachedMemWidth = 0;
+  int m_cachedMemHeight = 0;
 
   weasel::Layout* m_layout;
   weasel::Context& m_ctx;
   weasel::Context& m_octx;
   weasel::Status& m_status;
-  weasel::UIStyle& m_style;
+  const weasel::UIStyle& m_configStyle;
+  weasel::UIStyle m_style;
+  SogouSkin m_skin;
+  bool m_skinActive = false;
   weasel::UIStyle& m_ostyle;
 
   CRect m_inputPos;

@@ -14,6 +14,7 @@
 #include <ShellScalingApi.h>
 #include <WinUser.h>
 #include <memory>
+#include <fstream>
 #include <atlstr.h>
 #pragma comment(lib, "Shcore.lib")
 CAppModule _Module;
@@ -118,7 +119,11 @@ int WINAPI _tWinMain(HINSTANCE hInstance,
     WeaselServerApp app;
     RegisterApplicationRestart(NULL, 0);
     nRet = app.Run();
+  } catch (const std::exception& error) {
+    std::ofstream(WeaselLogPath() / L"weasel-startup-error.log") << error.what();
+    nRet = -1;
   } catch (...) {
+    std::ofstream(WeaselLogPath() / L"weasel-startup-error.log") << "Unknown startup exception";
     // bad luck...
     nRet = -1;
   }

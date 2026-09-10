@@ -1,0 +1,8 @@
+{
+  "version": "0.1.0-alpha.1",
+  "upstream_repository": "rime/weasel",
+  "upstream_tag": "0.17.4",
+  "upstream_commit": "9cc96e20dc71b80876b12f689bb5863c76c2a7ed",
+  "architecture": "x64",
+  "repository": "TracyReznik1/rime"
+}

@@ -15,6 +15,7 @@ on:
 
 jobs:
   lint:
+    if: github.repository == 'rime/weasel'
     runs-on: windows-2019
     steps:
       - name: Checkout last commit
@@ -47,6 +48,7 @@ jobs:
         run: ./clang-format.sh -i
 
   build:
+    if: github.repository == 'rime/weasel'
     needs: lint
     runs-on: windows-2019
     env:
@@ -122,6 +124,7 @@ jobs:
             .\output\archives\debug_symbols.7z
 
   xbuild:
+    if: github.repository == 'rime/weasel'
     needs: lint
     runs-on: windows-2019
     env:

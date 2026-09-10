@@ -26,7 +26,8 @@ int WeaselServerApp::Run() {
     win_sparkle_set_lang("zh-CN");
   else
     win_sparkle_set_lang("en");
-  win_sparkle_init();
+  // This extension has its own release stream; do not download an official
+  // update that replaces the skin-capable modules.
   m_ui.Create(m_server.GetHWnd());
 
   m_handler->Initialize();
@@ -40,7 +41,6 @@ int WeaselServerApp::Run() {
   m_handler->Finalize();
   m_ui.Destroy();
   tray_icon.RemoveIcon();
-  win_sparkle_cleanup();
 
   return ret;
 }
@@ -56,6 +56,9 @@ void WeaselServerApp::SetupMenuHandlers() {
       ID_WEASELTRAY_SETTINGS,
       std::bind(execute, dir / L"WeaselDeployer.exe", std::wstring()));
   m_server.AddMenuHandler(
+      ID_WEASELTRAY_SKINS,
+      std::bind(execute, dir / L"WeaselSkinManager.exe", std::wstring()));
+  m_server.AddMenuHandler(
       ID_WEASELTRAY_DICT_MANAGEMENT,
       std::bind(execute, dir / L"WeaselDeployer.exe", std::wstring(L"/dict")));
   m_server.AddMenuHandler(
@@ -67,7 +70,8 @@ void WeaselServerApp::SetupMenuHandlers() {
                           std::bind(open, L"https://rime.im/"));
   m_server.AddMenuHandler(ID_WEASELTRAY_FORUM,
                           std::bind(open, L"https://rime.im/discuss/"));
-  m_server.AddMenuHandler(ID_WEASELTRAY_CHECKUPDATE, check_update);
+  m_server.AddMenuHandler(ID_WEASELTRAY_CHECKUPDATE,
+      std::bind(open, L"https://github.com/TracyReznik1/rime/releases"));
   m_server.AddMenuHandler(ID_WEASELTRAY_INSTALLDIR, std::bind(explore, dir));
   m_server.AddMenuHandler(ID_WEASELTRAY_USERCONFIG,
                           std::bind(explore, WeaselUserDataPath()));

@@ -156,7 +156,9 @@ class DirectWriteResources {
   ComPtr<ID2D1SolidColorBrush> pBrush;
 
  private:
-  UIStyle& _style;
+  // Resources can outlive the candidate panel whose effective style created
+  // them. Keep a snapshot rather than a reference to that panel.
+  UIStyle _style;
   void _ParseFontFace(const std::wstring& fontFaceStr,
                       DWRITE_FONT_WEIGHT& fontWeight,
                       DWRITE_FONT_STYLE& fontStyle);

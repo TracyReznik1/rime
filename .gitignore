@@ -51,6 +51,14 @@ release-notes.html
 *.7z
 RELEASE_CHANGELOG.md
 deps/
+/work/
+__pycache__/
+docs/performance-2026-09-10.md
+docs/first-key-performance-2026-09-10.md
+docs/plans/task.md
+tools/try-skin.ps1
+tools/tsf-admin.ps1
+tools/update-tsf-trial.ps1
 arm64x_wrapper/*.o
 arm64x_wrapper/*.dll
 arm64x_wrapper/*.ime

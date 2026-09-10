@@ -54,6 +54,7 @@ WeaselPanel::WeaselPanel(weasel::UI& ui)
       m_ctx(ui.ctx()),
       m_octx(ui.octx()),
       m_status(ui.status()),
+      m_configStyle(ui.style()),
       m_style(ui.style()),
       m_ostyle(ui.ostyle()),
       m_candidateCount(0),
@@ -85,15 +86,37 @@ WeaselPanel::WeaselPanel(weasel::UI& ui)
     m_hMonitor = hMonitor;
   }
   dpi = dpiX;
-  _InitFontRes();
-  m_ostyle = m_style;
+  dpiScaleLayout = dpiX / 96.0f;
+  // OnCreate/Refresh resolves the skin before constructing text resources.
+  // Initialising here builds the original fonts, then immediately discards
+  // them for the skin's point size on the first keystroke.
 }
 
 WeaselPanel::~WeaselPanel() {
+  _CleanupMemDC();
+  m_skin.Reset();  // GDI+ objects must die before GdiplusShutdown.
   Gdiplus::GdiplusShutdown(_m_gdiplusToken);
   delete m_layout;
   m_layout = NULL;
   // pDWR.reset();
+}
+
+void WeaselPanel::_CleanupMemDC() {
+  if (m_hCachedMemDC) {
+    if (m_hCachedOldBitmap) {
+      ::SelectObject(m_hCachedMemDC, m_hCachedOldBitmap);
+      m_hCachedOldBitmap = nullptr;
+    }
+    ::DeleteDC(m_hCachedMemDC);
+    m_hCachedMemDC = nullptr;
+  }
+  if (m_hCachedMemBitmap) {
+    ::DeleteObject(m_hCachedMemBitmap);
+    m_hCachedMemBitmap = nullptr;
+  }
+  m_cachedMemPixels = nullptr;
+  m_cachedMemWidth = 0;
+  m_cachedMemHeight = 0;
 }
 
 void WeaselPanel::_ResizeWindow() {
@@ -130,6 +153,14 @@ void WeaselPanel::_CreateLayout() {
 
 // 更新界面
 void WeaselPanel::Refresh() {
+  m_style = m_configStyle;
+  m_skin.Load();
+  m_skinActive = m_skin.Available() &&
+                 m_style.layout_type == UIStyle::LAYOUT_HORIZONTAL &&
+                 m_status.schema_id != L".default" &&
+                 m_style.margin_x >= 0 && m_style.margin_y >= 0;
+  if (m_skinActive)
+    m_skin.ApplyStyle(m_style);
   bool should_show_icon =
       (m_status.ascii_mode || !m_status.composing || !m_ctx.aux.empty());
   m_candidateCount = (BYTE)m_ctx.cinfo.candies.size();
@@ -160,6 +191,12 @@ void WeaselPanel::Refresh() {
 
     CDCHandle dc = GetDC();
     m_layout->DoLayout(dc, pDWR);
+    if (m_skinActive) {
+      static_cast<StandardLayout*>(m_layout)->AddSkinInsets(
+          DPI_SCALE(m_skin.inset_left), DPI_SCALE(m_skin.inset_top),
+          DPI_SCALE(m_skin.inset_right), DPI_SCALE(m_skin.inset_bottom),
+          DPI_SCALE(m_skin.width), DPI_SCALE(m_skin.height));
+    }
     ReleaseDC(dc);
     _ResizeWindow();
     _RepositionWindow();
@@ -178,11 +215,33 @@ void WeaselPanel::_InitFontRes(bool forced) {
   // prepare d2d1 resources
   // if style changed, or dpi changed, or pDWR NULL, re-initialize directwrite
   // resources
-  if (forced || (pDWR == NULL) || (m_ostyle != m_style) || (dpiX != dpi)) {
+  const bool fontsChanged =
+      m_ostyle.font_face != m_style.font_face ||
+      m_ostyle.label_font_face != m_style.label_font_face ||
+      m_ostyle.comment_font_face != m_style.comment_font_face ||
+      m_ostyle.font_point != m_style.font_point ||
+      m_ostyle.label_font_point != m_style.label_font_point ||
+      m_ostyle.comment_font_point != m_style.comment_font_point ||
+      m_ostyle.layout_type != m_style.layout_type ||
+      m_ostyle.vertical_text_left_to_right != m_style.vertical_text_left_to_right ||
+      m_ostyle.max_width != m_style.max_width ||
+      m_ostyle.max_height != m_style.max_height ||
+      m_ostyle.linespacing != m_style.linespacing ||
+      m_ostyle.baseline != m_style.baseline;
+  if (forced || (pDWR == NULL)) {
     pDWR.reset();
     pDWR = std::make_shared<DirectWriteResources>(m_style, dpiX);
     pDWR->pRenderTarget->SetTextAntialiasMode(
         (D2D1_TEXT_ANTIALIAS_MODE)m_style.antialias_mode);
+  } else {
+    // Capability/colour/margin changes do not invalidate GPU resources.
+    // Font or DPI changes only require new text formats, not a new factory
+    // and render target.
+    if (fontsChanged || dpiX != dpi)
+      pDWR->InitResources(m_style, dpiX);
+    if (m_ostyle.antialias_mode != m_style.antialias_mode)
+      pDWR->pRenderTarget->SetTextAntialiasMode(
+          (D2D1_TEXT_ANTIALIAS_MODE)m_style.antialias_mode);
   }
   m_ostyle = m_style;
   dpi = dpiX;
@@ -934,16 +993,45 @@ bool WeaselPanel::_DrawCandidates(CDCHandle& dc, bool back) {
 }
 
 // draw client area
-void WeaselPanel::DoPaint(CDCHandle dc) {
+void WeaselPanel::DoPaint(CDCHandle dc, HBITMAP* snapshot) {
+  if (snapshot)
+    *snapshot = nullptr;
   // turn off WS_EX_TRANSPARENT, for better resp performance
   ModifyStyleEx(WS_EX_TRANSPARENT, WS_EX_LAYERED);
   GetClientRect(&rcw);
-  // prepare memDC
-  CDCHandle hdc = ::GetDC(m_hWnd);
-  CDCHandle memDC = ::CreateCompatibleDC(hdc);
-  HBITMAP memBitmap = ::CreateCompatibleBitmap(hdc, rcw.Width(), rcw.Height());
-  ::SelectObject(memDC, memBitmap);
-  ReleaseDC(hdc);
+  const int targetWidth = rcw.Width();
+  const int targetHeight = rcw.Height();
+  if (targetWidth <= 0 || targetHeight <= 0)
+    return;
+
+  // prepare memDC with reusable DIB section
+  if (!m_hCachedMemDC || targetWidth != m_cachedMemWidth || targetHeight != m_cachedMemHeight) {
+    _CleanupMemDC();
+    CDCHandle hdc = ::GetDC(m_hWnd);
+    m_hCachedMemDC = ::CreateCompatibleDC(hdc);
+    BITMAPINFO bitmapInfo = {};
+    bitmapInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bitmapInfo.bmiHeader.biWidth = targetWidth;
+    bitmapInfo.bmiHeader.biHeight = -targetHeight;
+    bitmapInfo.bmiHeader.biPlanes = 1;
+    bitmapInfo.bmiHeader.biBitCount = 32;
+    bitmapInfo.bmiHeader.biCompression = BI_RGB;
+    m_hCachedMemBitmap = ::CreateDIBSection(hdc, &bitmapInfo, DIB_RGB_COLORS,
+                                           &m_cachedMemPixels, nullptr, 0);
+    ::ReleaseDC(m_hWnd, hdc);
+    if (!m_hCachedMemBitmap || !m_hCachedMemDC) {
+      _CleanupMemDC();
+      return;
+    }
+    m_hCachedOldBitmap = ::SelectObject(m_hCachedMemDC, m_hCachedMemBitmap);
+    m_cachedMemWidth = targetWidth;
+    m_cachedMemHeight = targetHeight;
+  }
+
+  // Fast alpha channel zeroing
+  memset(m_cachedMemPixels, 0, static_cast<size_t>(targetWidth) * targetHeight * 4);
+
+  CDCHandle memDC(m_hCachedMemDC);
   bool drawn = false;
   if (!hide_candidates) {
     CRect auxrc = m_layout->GetAuxiliaryRect();
@@ -987,9 +1075,16 @@ void WeaselPanel::DoPaint(CDCHandle dc) {
     if ((!m_ctx.empty() && !m_style.inline_preedit) ||
         (m_style.inline_preedit && (m_candidateCount || !m_ctx.aux.empty()))) {
       CRect backrc = m_layout->GetContentRect();
-      _HighlightText(memDC, backrc, m_style.back_color, m_style.shadow_color,
-                     DPI_SCALE(m_style.round_corner_ex), BackType::BACKGROUND,
-                     IsToRoundStruct(), m_style.border_color);
+      const bool skinDrawn = m_skinActive &&
+          m_skin.Draw(memDC, rcw.Width(), rcw.Height(), dpiScaleLayout);
+      if (skinDrawn)
+        drawn = true;
+      else
+        _HighlightText(memDC, backrc,
+                       m_skinActive ? 0xffffffff : m_style.back_color,
+                       m_style.shadow_color,
+                       DPI_SCALE(m_style.round_corner_ex), BackType::BACKGROUND,
+                       IsToRoundStruct(), m_style.border_color);
     }
     if (!m_ctx.aux.str.empty()) {
       if (m_istorepos)
@@ -1059,11 +1154,15 @@ void WeaselPanel::DoPaint(CDCHandle dc) {
     if (!drawn)
       ShowWindow(SW_HIDE);
   }
-  _LayerUpdate(rcw, memDC);
-
-  // clean objs
-  ::DeleteDC(memDC);
-  ::DeleteObject(memBitmap);
+  if (!snapshot) {
+    _LayerUpdate(rcw, memDC);
+  } else {
+    ::SelectObject(m_hCachedMemDC, m_hCachedOldBitmap);
+    *snapshot = m_hCachedMemBitmap;
+    m_hCachedMemBitmap = nullptr;
+    m_hCachedOldBitmap = nullptr;
+    _CleanupMemDC();
+  }
 }
 
 // 由于某些软件并不依赖 WM_PAINT 消息来重绘，在消息循环中直接忽略掉了 WM_PAINT
@@ -1102,6 +1201,9 @@ LRESULT WeaselPanel::OnDestroy(UINT uMsg,
                                WPARAM wParam,
                                LPARAM lParam,
                                BOOL& bHandled) {
+  // TSF destroys/recreates this HWND between compositions, while the panel
+  // object survives. Keep its window-independent DIB/DC for the next word;
+  // size changes and the panel destructor release it.
   m_hoverIndex = -1;
   m_sticky = false;
   delete m_layout;

@@ -8,7 +8,10 @@ using namespace weasel;
 #define STYLEORWEIGHT (L":[^:]*[^a-f0-9:]+[^:]*")
 
 vector<wstring> ws_split(const wstring& in, const wstring& delim) {
-  std::wregex re{delim};
+  // Only these two literal separators are used by the font configuration.
+  static const std::wregex comma(L",");
+  static const std::wregex colon(L":");
+  const auto& re = delim == L"," ? comma : colon;
   return vector<wstring>{
       std::wsregex_token_iterator(in.begin(), in.end(), re, -1),
       std::wsregex_token_iterator()};
@@ -43,7 +46,10 @@ DirectWriteResources::DirectWriteResources(weasel::UIStyle& style,
   const D2D1_PIXEL_FORMAT format = D2D1::PixelFormat(
       DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED);
   const D2D1_RENDER_TARGET_PROPERTIES properties =
-      D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_DEFAULT, format);
+      // A candidate window is a small CPU-backed DIB, uploaded once by
+      // UpdateLayeredWindow. Avoid per-host D3D device startup and staging
+      // allocations for this GDI interop target.
+      D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE, format);
   HR(pD2d1Factory->CreateDCRenderTarget(&properties, &pRenderTarget));
   pRenderTarget->SetTextAntialiasMode(mode);
   pRenderTarget->SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
@@ -103,9 +109,10 @@ HRESULT DirectWriteResources::InitResources(const wstring& label_font_face,
     fontFaceStrVector = ws_split(fontface, L",");
     // setup weight and style by the first unit of fontface setting string
     _ParseFontFace(fontface, fontWeight, fontStyle);
+    static const std::wregex styleOrWeight(STYLEORWEIGHT, std::wregex::icase);
     fontFaceStrVector[0] =
         std::regex_replace(fontFaceStrVector[0],
-                           std::wregex(STYLEORWEIGHT, std::wregex::icase), L"");
+                           styleOrWeight, L"");
     // create text format with invalid font point will 'FAILED', no HR
     pDWFactory->CreateTextFormat(_mainFontFace.c_str(), NULL, fontWeight,
                                  fontStyle, DWRITE_FONT_STRETCH_NORMAL,
@@ -133,10 +140,22 @@ HRESULT DirectWriteResources::InitResources(const wstring& label_font_face,
     decltype(fontFaceStrVector)().swap(fontFaceStrVector);
   };
   init_font(font_face, font_point, pTextFormat, wrapping);
-  init_font(font_face, font_point, pPreeditTextFormat, wrapping_preedit);
-  init_font(label_font_face, label_font_point, pLabelTextFormat, wrapping);
-  init_font(comment_font_face, comment_font_point, pCommentTextFormat,
-            wrapping);
+  // Formats are immutable after initialization; text layouts carry per-text
+  // changes. Share identical formats/fallback maps instead of building four.
+  if (wrapping == wrapping_preedit)
+    pPreeditTextFormat = pTextFormat;
+  else
+    init_font(font_face, font_point, pPreeditTextFormat, wrapping_preedit);
+  if (label_font_face == font_face && label_font_point == font_point)
+    pLabelTextFormat = pTextFormat;
+  else
+    init_font(label_font_face, label_font_point, pLabelTextFormat, wrapping);
+  if (comment_font_face == font_face && comment_font_point == font_point)
+    pCommentTextFormat = pTextFormat;
+  else if (comment_font_face == label_font_face && comment_font_point == label_font_point)
+    pCommentTextFormat = pLabelTextFormat;
+  else
+    init_font(comment_font_face, comment_font_point, pCommentTextFormat, wrapping);
   return S_OK;
 }
 
@@ -161,10 +180,9 @@ void weasel::DirectWriteResources::SetDpi(const UINT& dpi) {
 }
 
 static wstring _MatchWordsOutLowerCaseTrim1st(const wstring& wstr,
-                                              const wstring& pat) {
+                                              const std::wregex& pattern) {
   wstring mat = L"";
   std::wsmatch mc;
-  std::wregex pattern(pat, std::wregex::icase);
   wstring::const_iterator iter = wstr.cbegin();
   wstring::const_iterator end = wstr.cend();
   while (regex_search(iter, end, mc, pattern)) {
@@ -183,11 +201,11 @@ static wstring _MatchWordsOutLowerCaseTrim1st(const wstring& wstr,
 void DirectWriteResources::_ParseFontFace(const wstring& fontFaceStr,
                                           DWRITE_FONT_WEIGHT& fontWeight,
                                           DWRITE_FONT_STYLE& fontStyle) {
-  const wstring patWeight(
+  static const std::wregex patWeight(
       L"(:thin|:extra_light|:ultra_light|:light|:semi_light|:medium|:demi_bold|"
       L":semi_bold|:bold|:extra_bold|:ultra_bold|:black|:heavy|:extra_black|:"
-      L"ultra_black)");
-  const std::map<wstring, DWRITE_FONT_WEIGHT> _mapWeight = {
+      L"ultra_black)", std::wregex::icase);
+  static const std::map<wstring, DWRITE_FONT_WEIGHT> _mapWeight = {
       {L"thin", DWRITE_FONT_WEIGHT_THIN},
       {L"extra_light", DWRITE_FONT_WEIGHT_EXTRA_LIGHT},
       {L"ultra_light", DWRITE_FONT_WEIGHT_ULTRA_LIGHT},
@@ -209,8 +227,8 @@ void DirectWriteResources::_ParseFontFace(const wstring& fontFaceStr,
   fontWeight =
       (it != _mapWeight.end()) ? it->second : DWRITE_FONT_WEIGHT_NORMAL;
 
-  const wstring patStyle(L"(:italic|:oblique|:normal)");
-  const std::map<wstring, DWRITE_FONT_STYLE> _mapStyle = {
+  static const std::wregex patStyle(L"(:italic|:oblique|:normal)", std::wregex::icase);
+  static const std::map<wstring, DWRITE_FONT_STYLE> _mapStyle = {
       {L"italic", DWRITE_FONT_STYLE_ITALIC},
       {L"oblique", DWRITE_FONT_STYLE_OBLIQUE},
       {L"normal", DWRITE_FONT_STYLE_NORMAL},
