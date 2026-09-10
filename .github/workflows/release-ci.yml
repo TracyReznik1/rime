@@ -101,7 +101,7 @@ jobs:
           files: |
             ./output/archives/weasel*.exe
             ./output/archives/debug_symbols.7z
-        
+
       # create stable release
       - name: Release
         uses: softprops/action-gh-release@v2
