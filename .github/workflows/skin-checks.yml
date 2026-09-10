@@ -5,6 +5,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: skin-checks-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   python-tests:
     runs-on: windows-2022
@@ -60,6 +63,8 @@ jobs:
           python tools/make-test-skin.py --output work/test-skin
           ./work/skin_native.exe "$PWD\work\test-skin\active.ini" "$PWD\work"
           if ($LASTEXITCODE) { throw 'Native renderer failed' }
+          ./work/skin_first_key.exe stress
+          if ($LASTEXITCODE) { throw 'Composition resource regression' }
       - uses: actions/upload-artifact@v4
         with:
           name: native-x64
@@ -67,3 +72,22 @@ jobs:
             output/WeaselServer.exe
             output/weaselx64.dll
             work/build-*.log
+  package:
+    needs: [python-tests, manager, native]
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: WeaselSkinManager
+          path: work/manager-dist/WeaselSkinManager/
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-x64
+          path: .
+      - shell: pwsh
+        run: ./tools/package-extension.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rime-skins-x64-package
+          path: work/packages/*.zip

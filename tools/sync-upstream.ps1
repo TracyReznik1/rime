@@ -13,12 +13,12 @@ if ($CheckOnly) { exit }
 if (!$Repository) { throw 'Target repository is required.' }
 if (git status --porcelain) { throw 'Use a clean checkout for upstream integration.' }
 $branch="upstream/$tag"
-$existing=& gh pr list --repo $Repository --state open --head $branch --json number --jq 'length'
+$existing=& gh pr list --repo $Repository --state all --head $branch --json number --jq 'length'
 if ($LASTEXITCODE) { throw 'Cannot inspect existing PRs.' }
 if ([int]$existing -gt 0) { Write-Output 'Update PR already exists.'; exit }
 git fetch --no-tags "https://github.com/$($config.upstream_repository).git" "refs/tags/$tag"
 if ($LASTEXITCODE) { throw 'Upstream fetch failed.' }
-$upstreamCommit=git rev-parse FETCH_HEAD
+$upstreamCommit=git rev-parse 'FETCH_HEAD^{commit}'
 git switch -c $branch
 if ($LASTEXITCODE) { throw 'Branch creation failed.' }
 git merge --no-commit --no-ff $upstreamCommit

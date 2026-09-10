@@ -23,6 +23,7 @@
 - [安装、换肤和恢复说明](docs/USER_GUIDE.md)
 - [构建、测试和上游维护](docs/DEVELOPMENT.md)
 - [功能路线](docs/plans/open-source-roadmap.md)
+- [验证记录与已知边界](docs/VALIDATION.md)
 - [发布页面](https://github.com/TracyReznik1/rime/releases)
 
 首发仍处于验证阶段；若发布页面没有安装包，可按构建文档自行构建。CI 构建产物不等于经过人工输入验收的正式版本。
