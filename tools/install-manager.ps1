@@ -10,7 +10,9 @@ if (!($selected | Where-Object path -EQ 'WeaselSkinManager.exe')) { throw 'Manag
 $key=(Get-FileHash -LiteralPath $manifest).Hash.Substring(0,12)
 $destination=Join-Path $root $key
 $exe=Join-Path $destination 'WeaselSkinManager.exe'
-$shortcut=Join-Path ([Environment]::GetFolderPath('Programs')) '小狼毫皮肤管理.lnk'
+# WScript.Shell can use the system ANSI code page when saving a shortcut name.
+# Keep the filename portable; the application itself uses Chinese labels.
+$shortcut=Join-Path ([Environment]::GetFolderPath('Programs')) 'Rime Skin Manager.lnk'
 $shell=New-Object -ComObject WScript.Shell
 if (Test-Path -LiteralPath $shortcut) {
  $existing=$shell.CreateShortcut($shortcut).TargetPath
@@ -30,7 +32,7 @@ foreach($file in $selected) {
 $link=$shell.CreateShortcut($shortcut)
 $link.TargetPath=$exe
 $link.WorkingDirectory=$destination
-$link.Description='导入和切换搜狗静态横版皮肤，需要已安装改版小狼毫渲染模块。'
+$link.Description='Rime static skin manager (requires the patched Weasel renderer)'
 $link.Save()
 $record=@{Executable=$exe;Shortcut=$shortcut;PackageSha256=(Get-FileHash -LiteralPath $manifest).Hash}
 $record | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'current.json') -Encoding utf8
