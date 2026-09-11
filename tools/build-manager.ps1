@@ -11,3 +11,5 @@ if (!(Test-Path $python)) {
 if ($LASTEXITCODE) { throw 'dependency installation failed' }
 & $python -m PyInstaller --noconfirm --clean --windowed --onedir --name WeaselSkinManager --contents-directory manager-runtime --distpath work/manager-dist --workpath work/manager-build --specpath work tools/skin_manager.py
 if ($LASTEXITCODE) { throw 'manager build failed' }
+& $python tools/collect-manager-notices.py work/manager-dist/WeaselSkinManager
+if ($LASTEXITCODE) { throw 'runtime notices are missing' }

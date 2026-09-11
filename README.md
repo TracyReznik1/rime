@@ -2,7 +2,7 @@
 
 基于 [rime/weasel](https://github.com/rime/weasel) 的非官方扩展，为小狼毫提供搜狗静态横版皮肤导入和管理窗口。
 
-当前为 **0.1.0-alpha.1**，基于 **Weasel 0.17.4**，面向 **Windows x64 TSF**。
+当前为 **0.1.0-alpha.2**，基于 **Weasel 0.17.4**，面向 **Windows x64 TSF**。
 
 ## 功能
 

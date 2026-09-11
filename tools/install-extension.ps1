@@ -68,6 +68,8 @@ if (!(Test-Path -LiteralPath (Join-Path $destination 'complete.json'))) {
  if ($LASTEXITCODE -gt 7) { throw 'Installed runtime copy failed.' }
  Copy-Item (Join-Path $PSScriptRoot 'WeaselServer.exe'),(Join-Path $PSScriptRoot 'weaselx64.dll'),(Join-Path $PSScriptRoot 'WeaselSkinManager.exe') -Destination $destination -Force
  Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'manager-runtime') -Destination $destination -Recurse -Force
+ Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'notices') -Destination $destination -Recurse -Force
+ Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'LICENSE.txt'),(Join-Path $PSScriptRoot 'SOURCE_REVISION.txt') -Destination $destination -Force
  foreach ($name in @('WeaselServer.exe','weaselx64.dll','WeaselSkinManager.exe')) {
   if ((Get-FileHash (Join-Path $destination $name)).Hash -ne (Get-FileHash (Join-Path $PSScriptRoot $name)).Hash) { throw 'Installed binary verification failed.' }
  }
