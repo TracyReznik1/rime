@@ -1,8 +1,9 @@
 #requires -Version 7.0
+param([string]$InstallRoot=(Join-Path $env:LOCALAPPDATA 'RimeSkinManager'),[switch]$DesktopShortcut)
 # Updates only the per-user helper and its shortcut. Does not register an IME.
 $ErrorActionPreference='Stop'
 $OutputEncoding=[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
-$root=Join-Path $env:LOCALAPPDATA 'RimeSkinManager'
+$root=[IO.Path]::GetFullPath($InstallRoot)
 $manifest=Join-Path $PSScriptRoot 'checksums.json'
 $files=Get-Content -LiteralPath $manifest -Raw -Encoding utf8 | ConvertFrom-Json
 $selected=@($files | Where-Object { $_.path -eq 'WeaselSkinManager.exe' -or $_.path -match '^(manager-runtime|notices)[\\/]' })
@@ -12,11 +13,14 @@ $destination=Join-Path $root $key
 $exe=Join-Path $destination 'WeaselSkinManager.exe'
 # WScript.Shell can use the system ANSI code page when saving a shortcut name.
 # Keep the filename portable; the application itself uses Chinese labels.
-$shortcut=Join-Path ([Environment]::GetFolderPath('Programs')) 'Rime Skin Manager.lnk'
+$shortcuts=@((Join-Path ([Environment]::GetFolderPath('Programs')) 'Rime Skin Manager.lnk'))
+if($DesktopShortcut) { $shortcuts += Join-Path ([Environment]::GetFolderPath('Desktop')) 'Rime Skin Manager.lnk' }
+$knownRoots=@($root,(Join-Path $env:LOCALAPPDATA 'RimeSkinManager'))
 $shell=New-Object -ComObject WScript.Shell
-if (Test-Path -LiteralPath $shortcut) {
+foreach($shortcut in $shortcuts) {
+ if (!(Test-Path -LiteralPath $shortcut)) { continue }
  $existing=$shell.CreateShortcut($shortcut).TargetPath
- if (!$existing.StartsWith($root+'\',[StringComparison]::OrdinalIgnoreCase)) { throw 'An unrelated shortcut already has this name; preserve it and rename it before continuing.' }
+ if (!($knownRoots | Where-Object { $existing.StartsWith($_+'\',[StringComparison]::OrdinalIgnoreCase) })) { throw 'An unrelated shortcut already has this name; preserve it and rename it before continuing.' }
 }
 foreach($file in $selected) {
  $source=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot $file.path))
@@ -29,13 +33,16 @@ foreach($file in $selected) {
  }
  if ((Get-FileHash -LiteralPath $target).Hash -ne $file.sha256) { throw 'Installed helper checksum mismatch.' }
 }
-$link=$shell.CreateShortcut($shortcut)
-$link.TargetPath=$exe
-$link.WorkingDirectory=$destination
-$link.Description='Rime static skin manager (requires the patched Weasel renderer)'
-$link.Save()
-$record=@{Executable=$exe;Shortcut=$shortcut;PackageSha256=(Get-FileHash -LiteralPath $manifest).Hash}
+foreach($shortcut in $shortcuts) {
+ $link=$shell.CreateShortcut($shortcut)
+ $link.TargetPath=$exe
+ $link.WorkingDirectory=$destination
+ $link.Description='Rime static skin manager (requires the patched Weasel renderer)'
+ $link.Save()
+ if($shell.CreateShortcut($shortcut).TargetPath -ne $exe) { throw 'Shortcut target was not preserved; choose an ASCII installation directory.' }
+}
+$record=@{Executable=$exe;Shortcuts=$shortcuts;PackageSha256=(Get-FileHash -LiteralPath $manifest).Hash}
 $record | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $root 'current.json') -Encoding utf8
 Write-Output "Manager installed: $exe"
-Write-Output "Start menu: $shortcut"
+Write-Output ("Shortcuts: "+($shortcuts -join ', '))
 Write-Output 'This helper requires the patched Weasel renderer. The official renderer cannot display imported backgrounds.'
